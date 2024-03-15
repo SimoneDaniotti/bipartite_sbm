@@ -2,6 +2,7 @@ import graph_tool.all as gt
 import numpy as np
 import random
 import pandas as pd
+import pickle
 
 def cols2bipartite(file):
     # Read DataFrame from CSV file
