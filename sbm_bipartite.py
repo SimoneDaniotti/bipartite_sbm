@@ -24,6 +24,15 @@ def cols2bipartite(file):
 
     return mapping_dict
 
+
+def cols2multipartite(file):
+    ##! build the mapping dict from node to its layer_index
+    df = pd.read_csv(file)  # Replace 'your_file.csv' with the actual filename
+    mapping_dict = pd.Series(df[df.columns[0]].values,index=df[df.columns[1]]).to_dict()
+    return mapping_dict
+
+
+
 class bipartite_sbm():
     '''
     Class for topic-modeling with sbm's.
@@ -47,6 +56,21 @@ class bipartite_sbm():
         for v in self.g.vertices():
             kind[v] = d[self.g.vp.name[v]]
         self.g.vp.kind = kind
+
+
+
+
+    def load_multipartite_graph(self,path,layer_map_path):
+        ##! load a multipartite graph; the "layer_map_path" is the csv file that project the node to its layer_index
+
+        self.g=gt.load_graph_from_csv(path,hashed=True,skip_first=True,eprop_types=["int"])
+        d=cols2multipartite(layer_map_path)
+        kind = self.g.new_vp("int")     # creates a VertexPropertyMap of type string
+        for v in self.g.vertices():
+            kind[v] = d[self.g.vp.name[v]]
+        self.g.vp.kind = kind
+
+
 
     def save_graph(self,filename = 'graph.gt.gz'):
         '''
@@ -138,3 +162,20 @@ class bipartite_sbm():
         with open(path, 'rb') as f:
             obj = pickle.load(f)
             self.__dict__.update(obj.__dict__)
+
+    def load_graph_from_networkx(self, G_nx, nx_layer_index):
+        ##! load_graph_from_networkx(G_nx, nx_layer_index), which could load graph from networkx G_nx; nx_layer_index is the string that identify the vertex layer
+
+        self.g = gt.Graph()
+
+        node_map = {v_nx: v for v, v_nx in enumerate(G_nx.nodes())}
+        self.g.add_vertex(len(node_map))
+        self.g.add_edge_list([(node_map[u], node_map[v]) for u, v in G_nx.edges()])
+
+        for v_nx, v in node_map.items():
+            self.g.vp.name[v] = v_nx
+
+        kind = self.g.new_vp("int")     # creates a VertexPropertyMap of type string
+        for v in self.g.vertices():
+            kind[v] = G_nx.nodes[self.g.vp.name[v]][nx_layer_index]
+        self.g.vp.kind = kind
