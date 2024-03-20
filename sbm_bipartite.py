@@ -6,8 +6,8 @@ import pickle
 
 def cols2bipartite(file):
     # Read DataFrame from CSV file
-    df = pd.read_csv(file)  # Replace 'your_file.csv' with the actual filename
-
+    df = pd.read_csv(file,dtype=str,keep_default_na=False, na_values=[''])  # Replace 'your_file.csv' with the actual filename
+    
     # Constructing the dictionary
     # mapping_dict = {}
     # for index, row in df.iterrows():
