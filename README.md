@@ -1,2 +1,8 @@
 # bipartite_sbm
 Project for a general described class for bipartite (multipartite) Stochastic Block Models
+fciuerjfedfijgn
+dfcojkernfvioedfjv
+fcoewsidfvncosedfvncodea[ikvnddv\
+vdcsodikvnmdsofkjndsf
+cnosdikjvsoiaujabnfcvoaijskndvolkpdfmvldskmv
+lsdkjfvnmdaosfjkvnodikfnmvlk
