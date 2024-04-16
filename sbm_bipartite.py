@@ -7,7 +7,7 @@ import pickle
 def cols2bipartite(file):
     # Read DataFrame from CSV file
     df = pd.read_csv(file,dtype=str,keep_default_na=False, na_values=[''])  # Replace 'your_file.csv' with the actual filename
-    
+
     # Constructing the dictionary
     # mapping_dict = {}
     # for index, row in df.iterrows():
@@ -48,6 +48,7 @@ class bipartite_sbm():
         self.groups = {} ## results of group membership from inference
         self.mdl = np.nan ## minimum description length of inferred state
         self.L = np.nan ## number of levels in hierarchy
+        self.prob = {}
 
     def load_graph(self,path):
         self.g=gt.load_graph_from_csv(path,hashed=True,skip_first=True,eprop_types=["int"])
@@ -179,3 +180,29 @@ class bipartite_sbm():
         for v in self.g.vertices():
             kind[v] = G_nx.nodes[self.g.vp.name[v]][nx_layer_index]
         self.g.vp.kind = kind
+
+
+    def get_max_nested_from_mcmc(self, force_niter = 1000, niter = 10):
+        bs = []
+
+        def collect_partitions(s):
+            global bs
+            bs.append(s.get_bs())
+
+        gt.mcmc_equilibrate(self.state, force_niter=force_niter, mcmc_args=dict(niter=niter), callback=collect_partitions)
+
+        # Disambiguate partitions and obtain marginals
+        pmode1 = gt.PartitionModeState(bs, nested=True, converge=True)
+        pv1 = pmode1.get_marginal(self.g)
+
+        # Get consensus estimate
+        bsp1 = pmode1.get_max_nested()
+
+        self.state = self.state.copy(bs=bsp1)
+        self.prob = {}
+        for v in self.g.vertices():
+            self.prob[self.g.vp.name[v]] = np.max(pv1[v])/np.sum(pv1[v])
+
+        
+
+        
