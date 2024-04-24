@@ -48,29 +48,22 @@ class bipartite_sbm():
         self.groups = {} ## results of group membership from inference
         self.mdl = np.nan ## minimum description length of inferred state
         self.L = np.nan ## number of levels in hierarchy
+        self.bs = []
         self.prob = {}
 
-    def load_graph(self,path):
-        self.g=gt.load_graph_from_csv(path,hashed=True,skip_first=True,eprop_types=["int"])
-        d=cols2bipartite(path)
+    def load_graph(self,network_file, layer_index_file = None):
+        ##! load a graph; the "layer_index_file" is the csv file that project the node to its layer_index
+
+        self.g=gt.load_graph_from_csv(network_file,hashed=True,skip_first=True,eprop_types=["int"])
+        if layer_index_file is None:
+            d=cols2bipartite(network_file)
+        else:
+            d=cols2multipartite(layer_index_file)
+
         kind = self.g.new_vp("int")     # creates a VertexPropertyMap of type string
         for v in self.g.vertices():
             kind[v] = d[self.g.vp.name[v]]
         self.g.vp.kind = kind
-
-
-
-
-    def load_multipartite_graph(self,path,layer_map_path):
-        ##! load a multipartite graph; the "layer_map_path" is the csv file that project the node to its layer_index
-
-        self.g=gt.load_graph_from_csv(path,hashed=True,skip_first=True,eprop_types=["int"])
-        d=cols2multipartite(layer_map_path)
-        kind = self.g.new_vp("int")     # creates a VertexPropertyMap of type string
-        for v in self.g.vertices():
-            kind[v] = d[self.g.vp.name[v]]
-        self.g.vp.kind = kind
-
 
 
     def save_graph(self,filename = 'graph.gt.gz'):
@@ -163,6 +156,7 @@ class bipartite_sbm():
         with open(path, 'rb') as f:
             obj = pickle.load(f)
             self.__dict__.update(obj.__dict__)
+            
 
     def load_graph_from_networkx(self, G_nx, nx_layer_index):
         ##! load_graph_from_networkx(G_nx, nx_layer_index), which could load graph from networkx G_nx; nx_layer_index is the string that identify the vertex layer
@@ -182,17 +176,15 @@ class bipartite_sbm():
         self.g.vp.kind = kind
 
 
-    def get_max_nested_from_mcmc(self, force_niter = 1000, niter = 10):
-        bs = []
-
+    def get_max_nested_from_mcmc(self, force_niter = 10, niter = 10):
+        
         def collect_partitions(s):
-            global bs
-            bs.append(s.get_bs())
+            self.bs.append(s.get_bs())
 
         gt.mcmc_equilibrate(self.state, force_niter=force_niter, mcmc_args=dict(niter=niter), callback=collect_partitions)
 
         # Disambiguate partitions and obtain marginals
-        pmode1 = gt.PartitionModeState(bs, nested=True, converge=True)
+        pmode1 = gt.PartitionModeState(self.bs, nested=True, converge=True)
         pv1 = pmode1.get_marginal(self.g)
 
         # Get consensus estimate
@@ -203,6 +195,7 @@ class bipartite_sbm():
         for v in self.g.vertices():
             self.prob[self.g.vp.name[v]] = np.max(pv1[v])/np.sum(pv1[v])
 
+        self.bs = []
         
 
         
