@@ -49,7 +49,9 @@ class bipartite_sbm():
         self.mdl = np.nan ## minimum description length of inferred state
         self.L = np.nan ## number of levels in hierarchy
         self.bs = []
-        self.prob = {}
+
+        self.pv ={} # frequency, for each vertex, of being in the selected community
+        self.prob = {} # probability, after convergin of mcmc steps, to be in the selected community
 
     def load_graph(self,network_file, layer_index_file = None):
         ##! load a graph; the "layer_index_file" is the csv file that project the node to its layer_index
@@ -185,12 +187,17 @@ class bipartite_sbm():
 
         # Disambiguate partitions and obtain marginals
         pmode1 = gt.PartitionModeState(self.bs, nested=True, converge=True)
+
         pv1 = pmode1.get_marginal(self.g)
+        self.pv = {}
+        for v in self.g.vertices():
+            self.pv[self.g.vp.name[v]] = pv1[v]
 
         # Get consensus estimate
         bsp1 = pmode1.get_max_nested()
 
         self.state = self.state.copy(bs=bsp1)
+
         self.prob = {}
         for v in self.g.vertices():
             self.prob[self.g.vp.name[v]] = np.max(pv1[v])/np.sum(pv1[v])
