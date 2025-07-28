@@ -28,9 +28,39 @@ def cols2bipartite(file):
 def cols2multipartite(file):
     ##! build the mapping dict from node to its layer_index
     df = pd.read_csv(file)  # Replace 'your_file.csv' with the actual filename
-    mapping_dict = pd.Series(df[df.columns[0]].values,index=df[df.columns[1]]).to_dict()
+    mapping_dict = pd.Series(df[df.columns[1]].values,index=df[df.columns[0]]).to_dict()
     return mapping_dict
 
+def block_dict_to_dataframe(block_dict):
+
+    tree_length = len(list(block_dict.values())[0]) 
+    nodelist = [n for n in list(block_dict.keys())]
+    
+    block_level_dict = {"NODE":nodelist}
+    levels_len = []
+
+    for i in range(tree_length):
+        block_level_dict['level_'+str(i)] = []
+        temp = []
+        for n in nodelist:
+            l = block_dict[n]
+            if l[i] not in temp:
+                temp.append(l[i])
+
+        temp_dict = {b:bi for bi,b in enumerate(temp)}
+        for n in nodelist:
+            block_level_dict['level_'+str(i)].append(temp_dict[block_dict[n][i]])
+
+        levels_len.append(len(temp))
+
+    return pd.DataFrame.from_dict(block_level_dict), levels_len
+
+def get_community_at_level(df_levels, level_index):
+    levels_community = {str(ci):[] for ci in df_levels[level_index]}
+    for t,ci in zip(df_levels['NODE'], df_levels[level_index]):
+        levels_community[str(ci)].append(t)
+
+    return levels_community
 
 
 class bipartite_sbm():
@@ -52,6 +82,8 @@ class bipartite_sbm():
 
         self.pv ={} # frequency, for each vertex, of being in the selected community
         self.prob = {} # probability, after convergin of mcmc steps, to be in the selected community
+        
+        self.layer_list = None
 
     def load_graph(self,network_file, layer_index_file = None):
         ##! load a graph; the "layer_index_file" is the csv file that project the node to its layer_index
@@ -59,8 +91,11 @@ class bipartite_sbm():
         self.g=gt.load_graph_from_csv(network_file,hashed=True,skip_first=True,eprop_types=["int"])
         if layer_index_file is None:
             d=cols2bipartite(network_file)
+        
         else:
             d=cols2multipartite(layer_index_file)
+            
+        self.layer_list = sorted(list(set(d.values())))
 
         kind = self.g.new_vp("int")     # creates a VertexPropertyMap of type string
         for v in self.g.vertices():
@@ -140,6 +175,64 @@ class bipartite_sbm():
             else:
                 self.L = L-2
 
+    def mcmc(self,overlap = False, n_init = 1, verbose=False, epsilon=1e-3):
+        '''
+        Fit the sbm to the word-document network.
+        - overlap, bool (default: False). Overlapping or Non-overlapping groups.
+            Overlapping not implemented yet
+        - n_init, int (default:1): number of different initial conditions to run in order to avoid local minimum of MDL.
+        '''
+        g = self.g
+        if g is None:
+            print('No data to fit the SBM. Load some data first (make_graph)')
+        else:
+            if overlap and "count" in g.ep:
+                raise ValueError("When using overlapping SBMs, the graph must be constructed with 'counts=False'")
+            clabel = g.vp['kind']
+
+            state_args = {'clabel': clabel, 'pclabel': clabel}
+            if "count" in g.ep:
+                state_args["eweight"] = g.ep.count
+
+            ## the inference
+            mdl = np.inf ##
+            for i_n_init in range(n_init):
+                state_tmp = self.state
+
+                L = 0
+                for s in state_tmp.levels:
+                    L += 1
+                    if s.get_nonempty_B() == 2:
+                        break
+                    
+                state_tmp = state_tmp.copy(bs=state_tmp.get_bs()[:L] + [np.zeros(1)])
+                state_tmp = state_tmp.copy(sampling=True)
+                delta = 1 + epsilon
+                tempt = 0
+                while abs(delta) > epsilon:
+                    delta = state_tmp.multilevel_mcmc_sweep(niter=100, beta=np.inf)[0]
+                    #print(delta)
+                    if tempt % 100 == 0:
+                        print(tempt, delta)
+
+                    tempt += 1
+                        
+                print(state_tmp)
+
+                mdl_tmp = state_tmp.entropy()
+                if mdl_tmp < mdl:
+                    mdl = 1.0*mdl_tmp
+                    state = state_tmp.copy()
+
+            self.state = state
+            ## minimum description length
+            self.mdl = state.entropy()
+            L = len(state.levels)
+            if L == 2:
+                self.L = 1
+            else:
+                self.L = L-2
+
     def save_model(self, path):
         '''
         Save the trained model in the specified path as a pickle
@@ -203,6 +296,31 @@ class bipartite_sbm():
             self.prob[self.g.vp.name[v]] = np.max(pv1[v])/np.sum(pv1[v])
 
         self.bs = []
-        
 
         
+    def get_community_dataframe(self):
+        levels = self.state.get_levels()
+        levels_len = len(levels)
+
+        node_map_from_gt_to_nx = {l:{} for l in self.layer_list}
+
+        for i in self.g.vertices():
+            node_map_from_gt_to_nx[self.g.vp.kind[i]][i] = self.g.vp.name[i]
+
+        block_dict = {l:{} for l in self.layer_list}
+        for ln,nxv_dict in node_map_from_gt_to_nx.items():
+            for v, nxv in nxv_dict.items():
+                block_dict[ln][nxv] = [levels[0].get_blocks()[v]]
+                for l in range(1,levels_len):
+                    block_dict[ln][nxv].append(levels[l].get_blocks()[block_dict[ln][nxv][-1]])
+
+        community_list_by_ln = {}
+        for ln, block_dict_at_ln in block_dict.items():
+            community_list_by_ln[ln] = []
+            df_block, level_len = block_dict_to_dataframe(block_dict_at_ln)
+            for level in range(len(level_len)):
+                community_unweighted_level = get_community_at_level(df_block, f"level_{level}")
+                community_list = [i for i in list(community_unweighted_level.keys())]
+                community_list_by_ln[ln].append(pd.DataFrame({'community_id':community_list, 'nodes':[community_unweighted_level[i] for i in community_list]}))
+
+        return community_list_by_ln
